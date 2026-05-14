@@ -96,6 +96,81 @@
     </div>
   </div>
 
+  <!-- Regime Banner (multi-factor 모드 활성 시 표시) -->
+  <div id="regime-banner" class="panel p-4 mb-6 hidden">
+    <div class="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+      <div>
+        <div class="text-xs text-slate-400 mb-1">🌐 Regime — Cross-System Integration</div>
+        <div class="flex flex-wrap gap-3 text-sm">
+          <span class="pill"><span class="text-slate-400">AI/Semi:</span> <b id="regime-ai-semi">—</b></span>
+          <span class="pill"><span class="text-slate-400">Crypto:</span> <b id="regime-crypto">—</b></span>
+          <span class="pill"><span class="text-slate-400">Risk:</span> <b id="regime-risk">—</b></span>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <div class="text-center px-3 py-1 rounded bg-cyan-500/10 border border-cyan-500/30">
+          <div class="text-[10px] text-cyan-300 uppercase">Value</div>
+          <div class="text-lg font-bold text-cyan-200 num-mono" id="weight-value">—</div>
+        </div>
+        <div class="text-center px-3 py-1 rounded bg-emerald-500/10 border border-emerald-500/30">
+          <div class="text-[10px] text-emerald-300 uppercase">Quality</div>
+          <div class="text-lg font-bold text-emerald-200 num-mono" id="weight-quality">—</div>
+        </div>
+        <div class="text-center px-3 py-1 rounded bg-amber-500/10 border border-amber-500/30">
+          <div class="text-[10px] text-amber-300 uppercase">Momentum</div>
+          <div class="text-lg font-bold text-amber-200 num-mono" id="weight-momentum">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Multi-Factor Long-Short Portfolio -->
+  <div id="ls-portfolio" class="panel p-4 mb-6 hidden">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+      <div>
+        <h2 class="text-lg font-semibold">🎯 Multi-Factor Long-Short Portfolio</h2>
+        <p class="text-xs text-slate-400">Sector-neutral · Value + Quality + Momentum 가중 결합 · 동일가중</p>
+      </div>
+      <div class="text-xs text-slate-400">
+        <span class="text-emerald-400">LONG</span> +100% / <span class="text-red-400">SHORT</span> -100% / Net 0%
+      </div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <div class="text-sm text-emerald-300 mb-2 font-semibold">📈 LONG TOP 12</div>
+        <div id="long-positions" class="space-y-1"></div>
+      </div>
+      <div>
+        <div class="text-sm text-red-300 mb-2 font-semibold">📉 SHORT BOTTOM 12</div>
+        <div id="short-positions" class="space-y-1"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backtest Results Panel -->
+  <div id="backtest-panel" class="panel p-4 mb-6 hidden">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+      <div>
+        <h2 class="text-lg font-semibold">🔬 Backtest — 시그널 검증</h2>
+        <p class="text-xs text-slate-400">Momentum 12-1M · 3-year · monthly rebalancing · 5-quintile</p>
+      </div>
+      <div class="flex flex-wrap gap-2 text-xs">
+        <span class="pill"><span class="text-slate-400">IC:</span> <b id="bt-ic">—</b></span>
+        <span class="pill"><span class="text-slate-400">IC IR:</span> <b id="bt-ic-ir">—</b></span>
+        <span class="pill"><span class="text-slate-400">N rebal:</span> <b id="bt-n">—</b></span>
+      </div>
+    </div>
+    <div id="quintile-chart" style="width:100%; height:300px;"></div>
+    <div class="overflow-x-auto mt-3">
+      <table class="w-full text-xs">
+        <thead>
+          <tr><th>Quintile</th><th class="text-right">Ann Ret</th><th class="text-right">Ann Vol</th><th class="text-right">Sharpe</th><th class="text-right">Max DD</th><th class="text-right">Hit Rate</th></tr>
+        </thead>
+        <tbody id="bt-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- 메인 그리드: 좌측 Scatter + 우측 Sector Heatmap -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
     <div class="panel p-4 lg:col-span-2">
@@ -243,7 +318,144 @@ async function loadData() {
   } catch (e) {
     document.body.innerHTML = '<div class="p-8 text-red-400">데이터 로드 실패: ' + e.message + '</div>';
     console.error(e);
+    return;
   }
+
+  // Multi-factor 데이터 (있으면 패널 활성화)
+  try {
+    const mfRes = await fetch("data/multifactor.json?_=" + Date.now());
+    if (mfRes.ok) {
+      const mf = await mfRes.json();
+      renderRegimeBanner(mf);
+      renderLongShortPortfolio(mf);
+    }
+  } catch (e) {
+    console.warn("multifactor.json not available:", e.message);
+  }
+
+  // Backtest 데이터 (있으면 패널 활성화)
+  try {
+    const btRes = await fetch("data/backtest.json?_=" + Date.now());
+    if (btRes.ok) {
+      const bt = await btRes.json();
+      renderBacktest(bt);
+    }
+  } catch (e) {
+    console.warn("backtest.json not available:", e.message);
+  }
+}
+
+function renderRegimeBanner(mf) {
+  const banner = document.getElementById("regime-banner");
+  if (!mf.regime) return;
+  banner.classList.remove("hidden");
+  document.getElementById("regime-ai-semi").textContent =
+    (mf.regime.ai_semi_phase || "—") + (mf.regime.ai_semi_score !== null && mf.regime.ai_semi_score !== undefined ? ` (${mf.regime.ai_semi_score.toFixed(1)})` : "");
+  document.getElementById("regime-crypto").textContent = mf.regime.crypto_phase || "—";
+  document.getElementById("regime-risk").textContent = mf.regime.risk_regime || "—";
+
+  if (mf.factor_weights) {
+    document.getElementById("weight-value").textContent    = (mf.factor_weights.value * 100).toFixed(0) + "%";
+    document.getElementById("weight-quality").textContent  = (mf.factor_weights.quality * 100).toFixed(0) + "%";
+    document.getElementById("weight-momentum").textContent = (mf.factor_weights.momentum * 100).toFixed(0) + "%";
+  }
+}
+
+function renderLongShortPortfolio(mf) {
+  if (!mf.portfolio || !mf.portfolio.positions) return;
+  document.getElementById("ls-portfolio").classList.remove("hidden");
+
+  const longs  = mf.portfolio.positions.filter(p => p.side === "LONG");
+  const shorts = mf.portfolio.positions.filter(p => p.side === "SHORT");
+
+  function renderPositions(list, containerId, color) {
+    const c = document.getElementById(containerId);
+    c.innerHTML = list.map((p, i) => `
+      <div class="flex items-center justify-between text-sm py-1.5 px-2 panel-2 hover:border-cyan-500 transition-colors cursor-pointer" onclick="filterTicker('${p.ticker}')">
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500 w-5">${i+1}</span>
+          <span class="font-bold ${color}">${p.ticker}</span>
+          <span class="text-[11px] text-slate-500 truncate max-w-[160px]" title="${p.sector || ''}">${p.sector || ''}</span>
+        </div>
+        <div class="text-xs num-mono ${color}">${p.final_score > 0 ? '+' : ''}${p.final_score.toFixed(3)}</div>
+      </div>
+    `).join("");
+  }
+
+  renderPositions(longs, "long-positions", "text-emerald-300");
+  renderPositions(shorts, "short-positions", "text-red-300");
+}
+
+function renderBacktest(bt) {
+  if (!bt.backtests || !bt.backtests.momentum_12_1m) return;
+  const data = bt.backtests.momentum_12_1m;
+  if (data.error) return;
+
+  document.getElementById("backtest-panel").classList.remove("hidden");
+
+  // IC 통계
+  if (data.ic_stats) {
+    document.getElementById("bt-ic").textContent =
+      (data.ic_stats.mean_ic > 0 ? "+" : "") + data.ic_stats.mean_ic.toFixed(4);
+    document.getElementById("bt-ic-ir").textContent =
+      (data.ic_stats.ic_ir > 0 ? "+" : "") + (data.ic_stats.ic_ir || 0).toFixed(2);
+  }
+  document.getElementById("bt-n").textContent = data.n_rebalances;
+
+  // Quintile cumulative 차트
+  const ts = data.timeseries || [];
+  if (ts.length > 0) {
+    const dates = ts.map(r => r.date);
+    function cumprod(arr) {
+      let cum = 1;
+      return arr.map(v => {
+        if (v === null || v === undefined) return null;
+        cum *= (1 + v);
+        return cum;
+      });
+    }
+    const traces = ["Q1", "Q2", "Q3", "Q4", "Q5", "LS"].map(q => ({
+      x: dates,
+      y: cumprod(ts.map(r => r[q])),
+      mode: "lines",
+      name: q,
+      line: q === "LS"
+        ? { color: "#f59e0b", width: 3, dash: "dot" }
+        : q === "Q5"
+          ? { color: "#10b981", width: 2 }
+          : q === "Q1"
+            ? { color: "#ef4444", width: 2 }
+            : { width: 1.5 },
+    }));
+    Plotly.newPlot("quintile-chart", traces, {
+      paper_bgcolor: "rgba(0,0,0,0)",
+      plot_bgcolor: "rgba(0,0,0,0)",
+      font: { color: "#cbd5e1", size: 11 },
+      margin: { l: 50, r: 20, t: 10, b: 35 },
+      yaxis: { title: { text: "Cumulative Return", font: { size: 10 } }, gridcolor: "rgba(255,255,255,0.05)" },
+      xaxis: { gridcolor: "rgba(255,255,255,0.05)" },
+      legend: { orientation: "h", y: -0.15, font: { size: 10 } },
+    }, { responsive: true, displayModeBar: false });
+  }
+
+  // 통계 테이블
+  const tbody = document.getElementById("bt-table-body");
+  const stats = data.stats || {};
+  tbody.innerHTML = ["Q1","Q2","Q3","Q4","Q5","LS"]
+    .filter(q => stats[q])
+    .map(q => {
+      const s = stats[q];
+      const sharpe = s.sharpe !== null ? (s.sharpe > 0 ? "+" : "") + s.sharpe.toFixed(2) : "—";
+      const cls = q === "LS" ? "text-amber-300 font-bold" : (q === "Q5" ? "text-emerald-300" : (q === "Q1" ? "text-red-300" : ""));
+      return `<tr class="${cls}">
+        <td class="font-semibold">${q}</td>
+        <td class="text-right num-mono">${(s.annual_return * 100).toFixed(1)}%</td>
+        <td class="text-right num-mono">${(s.annual_vol * 100).toFixed(1)}%</td>
+        <td class="text-right num-mono">${sharpe}</td>
+        <td class="text-right num-mono text-red-400">${(s.max_drawdown * 100).toFixed(1)}%</td>
+        <td class="text-right num-mono">${(s.hit_rate * 100).toFixed(0)}%</td>
+      </tr>`;
+    }).join("");
 }
 
 // ----------------------------------------------------------------------------

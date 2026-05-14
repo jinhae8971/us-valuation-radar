@@ -1,0 +1,91 @@
+name: Weekly Backtest
+
+on:
+  schedule:
+    # 매주 일요일 09:00 KST = 토요일 24:00 UTC = 일요일 00:00 UTC
+    - cron: "0 0 * * 0"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: weekly-backtest
+  cancel-in-progress: false
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run backtest
+        env:
+          TZ: Asia/Seoul
+        run: python src/backtest_engine.py
+
+      - name: Commit results
+        env:
+          TZ: Asia/Seoul
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/data/backtest.json
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            DATE=$(date '+%Y-%m-%d')
+            git commit -m "chore(backtest): weekly snapshot $DATE"
+            git push
+          fi
+
+      - name: Telegram summary
+        if: success()
+        env:
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python - <<'EOF'
+          import os, json, requests
+          with open("docs/data/backtest.json", "r") as f:
+              d = json.load(f)
+          bt = d.get("backtests", {}).get("momentum_12_1m", {})
+          if "error" in bt or not bt:
+              msg = f"⚠️ 백테스트 결과 비정상: {bt.get('error', '?')}"
+          else:
+              stats = bt.get("stats", {})
+              ic = bt.get("ic_stats", {})
+              q5 = stats.get("Q5", {}); q1 = stats.get("Q1", {}); ls = stats.get("LS", {})
+              msg = (
+                  f"🔬 <b>Weekly Backtest Report</b>\n"
+                  f"📅 {d['generated_at_kst']}\n\n"
+                  f"<b>Momentum 12-1M · Monthly · {bt.get('n_rebalances', '?')} rebalances</b>\n\n"
+                  f"📊 <b>Quintile Performance (Annual)</b>\n"
+                  f"  Q5 (Top): <b>{q5.get('annual_return', 0)*100:+.1f}%</b> · Sharpe {q5.get('sharpe', 0):+.2f}\n"
+                  f"  Q1 (Bot): <b>{q1.get('annual_return', 0)*100:+.1f}%</b> · Sharpe {q1.get('sharpe', 0):+.2f}\n"
+                  f"  L-S Spread: <b>{ls.get('annual_return', 0)*100:+.1f}%</b>\n\n"
+                  f"📈 <b>Information Coefficient</b>\n"
+                  f"  Mean IC: <b>{ic.get('mean_ic', 0):+.4f}</b>\n"
+                  f"  IC IR:   <b>{ic.get('ic_ir', 0):+.2f}</b> (annualized)\n"
+                  f"  Hit Rate: {ic.get('hit_rate', 0)*100:.0f}%\n"
+              )
+          requests.post(
+              f"https://api.telegram.org/bot{os.environ['TELEGRAM_TOKEN']}/sendMessage",
+              json={"chat_id": os.environ["TELEGRAM_CHAT_ID"], "text": msg, "parse_mode": "HTML"},
+              timeout=15,
+          ).raise_for_status()
+          EOF

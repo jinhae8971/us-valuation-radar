@@ -41,6 +41,12 @@ jobs:
           TZ: Asia/Seoul
         run: python src/fetch_fundamentals.py
 
+      - name: Multi-factor engine (Value + Quality + Momentum + Regime)
+        env:
+          TZ: Asia/Seoul
+        run: python src/multifactor_engine.py
+        continue-on-error: true   # multi-factor 실패 시에도 기본 시그널은 전송
+
       - name: Send Telegram alert
         env:
           TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}

@@ -74,12 +74,55 @@ def build_message(snapshot: Dict[str, Any], top_n: int = 5) -> str:
     lines.append(f"📊 <b>US Valuation Radar</b>")
     lines.append(f"🕐 {now}")
     lines.append(f"📈 Universe: {snapshot['universe_size']} stocks")
-    lines.append("")
-    lines.append("<b>섹터별 저평가 TOP 5</b>")
-    lines.append("<i>(낮을수록 동종 대비 저평가)</i>")
-    lines.append("")
 
-    # super_sector 별로 그룹핑
+    # === Multi-factor 데이터 (있으면 함께 표시) ===
+    mf_path = ROOT / "docs" / "data" / "multifactor.json"
+    if mf_path.exists():
+        try:
+            with open(mf_path, "r", encoding="utf-8") as f:
+                mf = json.load(f)
+            regime = mf.get("regime", {})
+            weights = mf.get("factor_weights", {})
+            portfolio = mf.get("portfolio", {})
+
+            lines.append("")
+            lines.append("━━━━━━━━━━━━━━━━━━")
+            lines.append("<b>🌐 Regime + Factor Weights</b>")
+            if regime.get("ai_semi_phase"):
+                lines.append(f"  AI/Semi: <b>{regime['ai_semi_phase']}</b> ({regime.get('ai_semi_score', 0):.1f})")
+            if regime.get("crypto_phase"):
+                lines.append(f"  Crypto:  <b>{regime['crypto_phase']}</b>")
+            if regime.get("risk_regime"):
+                lines.append(f"  Risk:    <b>{regime['risk_regime']}</b>")
+            if weights:
+                lines.append(
+                    f"  Weights: V <b>{weights.get('value',0):.0%}</b> · "
+                    f"Q <b>{weights.get('quality',0):.0%}</b> · "
+                    f"M <b>{weights.get('momentum',0):.0%}</b>"
+                )
+
+            # Long-Short 포지션 — 상위 5씩
+            if portfolio.get("positions"):
+                longs = [p for p in portfolio["positions"] if p["side"] == "LONG"][:5]
+                shorts = [p for p in portfolio["positions"] if p["side"] == "SHORT"][:5]
+                lines.append("")
+                lines.append("━━━━━━━━━━━━━━━━━━")
+                lines.append("<b>🎯 Multi-Factor Long-Short TOP 5</b>")
+                lines.append("📈 <b>LONG</b>:")
+                for i, p in enumerate(longs, 1):
+                    lines.append(f"  {i}. <b>{p['ticker']}</b> ({p['final_score']:+.3f})  <i>{p['sector'][:30]}</i>")
+                lines.append("📉 <b>SHORT</b>:")
+                for i, p in enumerate(shorts, 1):
+                    lines.append(f"  {i}. <b>{p['ticker']}</b> ({p['final_score']:+.3f})  <i>{p['sector'][:30]}</i>")
+        except Exception as e:
+            print(f"⚠️ multifactor 로드 실패: {e}")
+
+    # === 기존 섹터별 TOP 5 (Value Z 기준) ===
+    lines.append("")
+    lines.append("━━━━━━━━━━━━━━━━━━")
+    lines.append("<b>💎 섹터별 저평가 TOP 5 (Value)</b>")
+    lines.append("<i>composite Z-score 기준</i>")
+
     stocks_with_z = [
         s for s in snapshot["stocks"]
         if s.get("composite_z") is not None and s.get("super_sector")
@@ -89,43 +132,38 @@ def build_message(snapshot: Dict[str, Any], top_n: int = 5) -> str:
         sec = s["super_sector"]
         sectors.setdefault(sec, []).append(s)
 
-    # 각 섹터 내에서 composite_z 오름차순 정렬
     for sec, stocks in sectors.items():
         stocks.sort(key=lambda x: x["composite_z"])
 
-    # 알파벳 순 섹터 출력
     for sec in sorted(sectors.keys()):
         stocks = sectors[sec][:top_n]
         if not stocks:
             continue
-        lines.append(f"━━━━━━━━━━━━━━━━━━")
+        lines.append("")
         lines.append(f"🏷️ <b>{sec}</b>")
         for i, s in enumerate(stocks, 1):
             tk = s.get("ticker", "?")
             z = s.get("composite_z")
             pe = s.get("pe")
-            ps = s.get("ps")
             quality = s.get("quality_z")
 
-            # 품질 마커
             if quality is not None and quality > 0:
-                q_marker = "✨"  # 우량 + 저평가
+                q_marker = "✨"
             elif quality is not None and quality < -1:
-                q_marker = "⚠️"   # 가치 함정 위험
+                q_marker = "⚠️"
             else:
                 q_marker = "  "
 
             lines.append(
                 f"  {i}. {q_marker}<b>{tk}</b>  "
                 f"Z=<b>{format_number(z, '+.2f')}</b>  "
-                f"PE={format_number(pe, '.1f')}  "
-                f"PS={format_number(ps, '.1f')}"
+                f"PE={format_number(pe, '.1f')}"
             )
 
     lines.append("")
     lines.append("━━━━━━━━━━━━━━━━━━")
-    lines.append("✨ 우량 종목 (Quality+)  ⚠️ 가치함정 주의")
-    lines.append(f"🔗 <a href='{pages_url}'>전체 대시보드 보기</a>")
+    lines.append("✨ 우량  ⚠️ 가치함정 주의")
+    lines.append(f"🔗 <a href='{pages_url}'>전체 대시보드</a>")
 
     return "\n".join(lines)
 
