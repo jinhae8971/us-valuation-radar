@@ -1,0 +1,181 @@
+# US Valuation Radar 📊
+
+> AI/반도체 + 빅테크 ~108종목을 동종 섹터 멀티플 대비 저평가도로 매일 자동 스캔하는 가치투자 인텔리전스 시스템
+
+[![Daily Update](https://github.com/jinhae8971/us-valuation-radar/actions/workflows/daily-update.yml/badge.svg)](https://github.com/jinhae8971/us-valuation-radar/actions/workflows/daily-update.yml)
+
+🔗 **Live Dashboard**: https://jinhae8971.github.io/us-valuation-radar/
+
+---
+
+## 🎯 핵심 가치
+
+1. **동종 섹터 비교** — 절대 멀티플이 아닌, 같은 비즈니스 모델끼리만 비교 (NVDA를 DIS와 비교하지 않음)
+2. **Robust Z-score + Winsorization** — Median/MAD 기반으로 이상치에 강건, ±5σ로 극단치 제한
+3. **5개 지표 종합** — P/E, P/S, P/B, EV/EBITDA, EV/Sales 평균 (최소 3개 필요)
+4. **품질 보정** — Quality Z-score(ROE, 마진, 성장률)로 가치 함정(value trap) 식별
+5. **음수/극단 멀티플 자동 제거** — 적자 기업의 의미 없는 비교 차단
+
+---
+
+## 🏗️ 아키텍처
+
+```
+┌──────────────────────────────────────────────────┐
+│   GitHub Actions (매일 07:00 KST cron)            │
+│   = 미국 장마감 + 데이터 안정화 후                  │
+└──────────────┬───────────────────────────────────┘
+               │
+       ┌───────▼────────┐
+       │ yfinance fetch │  (108종목 × 5개 지표)
+       └───────┬────────┘
+               │
+       ┌───────▼────────────────┐
+       │ Super-Sector Z-score   │ (Robust + Winsorize)
+       │ Composite + Quality    │
+       └───────┬────────────────┘
+               │
+       ┌───────┴────────────┐
+       │                    │
+┌──────▼──────┐    ┌────────▼────────┐
+│ docs/data/  │    │ Telegram Alert  │
+│ latest.json │    │ (섹터별 TOP 5)   │
+│ history/    │    └─────────────────┘
+└──────┬──────┘
+       │
+┌──────▼──────────────────────┐
+│ GitHub Pages 대시보드         │
+│ (Plotly + Tailwind)         │
+└─────────────────────────────┘
+```
+
+---
+
+## 📊 대시보드 구성
+
+| 패널 | 내용 |
+|---|---|
+| **KPI 카드** | 유니버스 사이즈, 섹터 수, 저평가/고평가 종목 수 |
+| **Valuation × Quality Map** | X축: 저평가도, Y축: 우량도, 크기: 시총. 좌상단 = 💎 SWEET SPOT |
+| **Sector Heatmap** | 10개 super-sector × 5개 지표 매트릭스 |
+| **TOP 12 Cards** | 저평가 종합 1~12위 카드 (✨ 우량 / ⚠️ 가치함정 표기) |
+| **Sortable Table** | 전체 108종목, 검색·필터·정렬 가능 |
+| **Sector Stats** | 섹터별 중앙값 (median) 멀티플 |
+
+---
+
+## 🏷️ 유니버스 (108종목 / 10 super-sectors)
+
+| Super-Sector | 종목 수 | 대표 종목 |
+|---|---:|---|
+| Semiconductor - Logic/Compute | 21 | NVDA, AMD, AVGO, TSM, INTC, TXN |
+| Software - SaaS/Security | 20 | CRM, NOW, ADBE, CRWD, PANW, SNOW |
+| Power & Datacenter Infra | 13 | VST, CEG, ETN, VRT, SMCI, DELL |
+| Mega Cap Tech | 11 | AAPL, MSFT, GOOGL, AMZN, META, TSLA |
+| AI Infrastructure Services | 11 | CRWV, NBIS, CSCO, ANET, NET |
+| Semiconductor - Equipment/Materials | 8 | ASML, AMAT, LRCX, KLAC |
+| Emerging Tech | 8 | IONQ, ISRG, ROK, SYM |
+| Internet / Consumer Tech | 8 | TTD, APP, RDDT, DUOL, SPOT |
+| Software - AI Pure-Play | 5 | PLTR, AI, PATH, BBAI, SOUN |
+| Semiconductor - Memory/Storage | 3 | MU, WDC, STX |
+
+> 세부 섹터(19개)는 `src/universe.py`에서 정의, 비교는 super_sector 기준.
+
+---
+
+## 🔬 알고리즘 상세
+
+### Robust Z-score
+```
+z = (x - median) / (1.4826 × MAD)
+MAD = median(|x - median(x)|)
+```
+- 1.4826 = 정규분포 가정 시 MAD → σ 변환 상수
+- ±5σ winsorization으로 극단치 제한
+
+### Composite Score
+```
+composite_z = mean(z_pe, z_ps, z_pb, z_ev_ebitda, z_ev_sales)
+              ※ 최소 3개 지표 가용해야 유효
+```
+
+### Quality Z-score
+```
+quality_z = mean(z_profit_margin, z_roe, z_revenue_growth, z_gross_margin)
+            ※ 전체 유니버스 기준 (섹터 무관)
+```
+
+### 신뢰성 가드
+- 섹터 종목 수 < 5 → Z-score 계산 안 함
+- 음수 멀티플 (적자) → 무효 처리
+- P/E > 500, P/S > 100, P/B > 100 등 비현실 값 → 무효
+- 가용 지표 < 3 → composite_z = NaN
+
+---
+
+## 🚀 배포 가이드
+
+### 1) 신규 레포 셋업 (Windows PowerShell)
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\setup_github.ps1
+```
+
+### 2) 수동 등록할 GitHub Secrets
+- `TELEGRAM_TOKEN`
+- `TELEGRAM_CHAT_ID`
+
+### 3) GitHub Pages 활성화
+- Repo Settings → Pages → Source: **Deploy from a branch**
+- Branch: `main`, Folder: `/docs`
+- 약 1분 후 https://jinhae8971.github.io/us-valuation-radar/ 활성화
+
+### 4) 즉시 트리거
+- Actions 탭 → **Daily Valuation Update** → **Run workflow**
+- 또는 setup_github.ps1 의 [5] 단계가 자동 트리거함
+
+---
+
+## 📅 운영 스케줄
+
+| 시각(KST) | 동작 |
+|---|---|
+| 매일 07:00 | GitHub Actions 자동 실행 (cron `0 22 * * *` UTC) |
+| 실행 시간 | ~5분 (108종목 fetch + 분석 + 커밋 + 텔레그램) |
+| 데이터 갱신 | `docs/data/latest.json` + `docs/data/history/YYYY-MM-DD.json` |
+| 알림 | 텔레그램 봇이 섹터별 TOP 5 저평가 종목 발송 |
+
+---
+
+## 🔄 Git as DB Pattern
+
+- 별도 DB 없음. JSON 스냅샷을 Git 히스토리로 관리
+- `docs/data/latest.json` — 항상 최신
+- `docs/data/history/YYYY-MM-DD.json` — 일별 백업
+- 시계열 분석 시 git log + history 조합
+
+---
+
+## ⚠️ 주의사항
+
+- yfinance는 무료 데이터로 **장 마감 후 1~2시간 지연** 가능
+- 신규 IPO 종목 (예: CBRS)은 펀더멘털 데이터가 안정화될 때까지 비교에서 제외될 수 있음
+- 본 대시보드는 **투자 참고용**이며, 실제 투자 결정은 본인 책임 하에
+- 저평가 Z-score는 정량 신호일 뿐, **반드시 정성적 분석(비즈니스 모델, 경영진, 매크로)을 병행** 필요
+
+---
+
+## 📚 관련 시스템 (Younggil 생태계 통합)
+
+이 시스템은 다음과 함께 운영 가능:
+- `github-actions-dashboard` — 오케스트레이터로 등록
+- `crypto-cycle-intelligence` — 크립토 사이클과 교차 검증
+- `ai-semi-cycle-intelligence` — AI/반도체 사이클 점수와 종목 단위 매핑
+- `risk-regime-monitor` — Risk On/Off 모드별 진입 전략 차별화
+- `kospi-strategy` — 미국 시그널 → 한국 동조 종목 전이 분석
+
+---
+
+## 📄 License
+
+Personal use. Generated by Claude (Anthropic) for Younggil.

@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>US Valuation Radar</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  :root {
+    --bg: #0a0e1a;
+    --panel: #131825;
+    --panel-2: #1a2030;
+    --border: #2a3245;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #06b6d4;
+    --accent-2: #818cf8;
+    --green: #10b981;
+    --red: #ef4444;
+    --yellow: #f59e0b;
+  }
+  html, body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "SF Pro", "Helvetica Neue", Arial, sans-serif; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; }
+  .panel-2 { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; }
+  .glow-undervalued { box-shadow: 0 0 0 1px rgba(16,185,129,0.4), 0 0 12px rgba(16,185,129,0.15); }
+  .glow-overvalued  { box-shadow: 0 0 0 1px rgba(239,68,68,0.4), 0 0 12px rgba(239,68,68,0.15); }
+  .num-mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  table { border-collapse: separate; border-spacing: 0; }
+  th, td { padding: 8px 10px; font-size: 13px; }
+  thead th { position: sticky; top: 0; background: var(--panel-2); color: var(--text-dim); font-weight: 600; text-align: left; border-bottom: 1px solid var(--border); user-select: none; cursor: pointer; }
+  thead th:hover { color: var(--text); }
+  tbody tr { border-bottom: 1px solid rgba(42,50,69,0.5); }
+  tbody tr:hover { background: rgba(6,182,212,0.04); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge-under { background: rgba(16,185,129,0.15); color: #6ee7b7; border: 1px solid rgba(16,185,129,0.3); }
+  .badge-over  { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+  .badge-mid   { background: rgba(148,163,184,0.15); color: #cbd5e1; border: 1px solid rgba(148,163,184,0.3); }
+  .pill { display: inline-block; padding: 3px 8px; border-radius: 6px; font-size: 11px; background: rgba(255,255,255,0.04); color: var(--text-dim); border: 1px solid var(--border); }
+  /* Z-score 색상 매핑 */
+  .z-deep-under { background: linear-gradient(90deg, rgba(16,185,129,0.35), rgba(16,185,129,0.1)); color: #6ee7b7; }
+  .z-under      { background: linear-gradient(90deg, rgba(16,185,129,0.2), rgba(16,185,129,0.05)); color: #86efac; }
+  .z-fair       { color: #cbd5e1; }
+  .z-over       { background: linear-gradient(90deg, rgba(239,68,68,0.2), rgba(239,68,68,0.05)); color: #fca5a5; }
+  .z-deep-over  { background: linear-gradient(90deg, rgba(239,68,68,0.35), rgba(239,68,68,0.1)); color: #fda4af; }
+  .scroll-x { overflow-x: auto; }
+  .scroll-y { overflow-y: auto; max-height: 600px; }
+  .tab-btn { padding: 8px 14px; font-size: 13px; color: var(--text-dim); border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.15s; }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .gradient-text {
+    background: linear-gradient(90deg, #06b6d4, #818cf8);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3a4356; }
+</style>
+</head>
+<body>
+
+<div class="max-w-[1600px] mx-auto px-4 sm:px-6 py-6">
+
+  <!-- Header -->
+  <header class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
+    <div>
+      <h1 class="text-3xl sm:text-4xl font-bold gradient-text">US Valuation Radar</h1>
+      <p class="text-sm text-slate-400 mt-1">동종섹터 대비 저평가 종목 발굴 · AI/반도체 + 빅테크 focus</p>
+    </div>
+    <div class="text-right">
+      <div class="text-xs text-slate-500" id="updated-time">Loading...</div>
+      <div class="text-xs text-slate-500 mt-1">데이터: yfinance · 갱신: 매일 07:00 KST</div>
+    </div>
+  </header>
+
+  <!-- KPI 카드 -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="panel p-4">
+      <div class="text-xs text-slate-400 mb-1">Universe</div>
+      <div class="text-2xl font-bold num-mono" id="kpi-universe">—</div>
+    </div>
+    <div class="panel p-4">
+      <div class="text-xs text-slate-400 mb-1">Super-Sectors</div>
+      <div class="text-2xl font-bold num-mono" id="kpi-sectors">—</div>
+    </div>
+    <div class="panel p-4 glow-undervalued">
+      <div class="text-xs text-emerald-400 mb-1">Undervalued (Z &lt; -1)</div>
+      <div class="text-2xl font-bold num-mono text-emerald-300" id="kpi-under">—</div>
+    </div>
+    <div class="panel p-4 glow-overvalued">
+      <div class="text-xs text-red-400 mb-1">Overvalued (Z &gt; +1)</div>
+      <div class="text-2xl font-bold num-mono text-red-300" id="kpi-over">—</div>
+    </div>
+  </div>
+
+  <!-- 메인 그리드: 좌측 Scatter + 우측 Sector Heatmap -->
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+    <div class="panel p-4 lg:col-span-2">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-semibold">📊 Valuation × Quality Map</h2>
+        <div class="text-xs text-slate-400">X: 저평가도 · Y: 우량도 · 크기: 시가총액</div>
+      </div>
+      <div id="scatter-plot" style="width:100%; height:480px;"></div>
+    </div>
+    <div class="panel p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-lg font-semibold">🔥 Sector Heatmap</h2>
+      </div>
+      <div id="sector-heatmap" style="width:100%; height:480px;"></div>
+    </div>
+  </div>
+
+  <!-- TOP 저평가 종목 카드 -->
+  <div class="panel p-4 mb-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-lg font-semibold">💎 TOP 12 Undervalued — 섹터 대비 저평가 종합 1위~12위</h2>
+      <div class="text-xs text-slate-400">Composite Z-score 기준</div>
+    </div>
+    <div id="top-cards" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3"></div>
+  </div>
+
+  <!-- 풀 테이블 + 필터 -->
+  <div class="panel p-4 mb-6">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+      <h2 class="text-lg font-semibold">📋 전체 종목 — 정렬 가능 테이블</h2>
+      <div class="flex flex-wrap gap-2">
+        <input id="search-input" type="text" placeholder="티커/이름 검색..." class="px-3 py-1.5 text-sm bg-slate-900 border border-slate-700 rounded-md text-slate-200 focus:border-cyan-500 focus:outline-none" />
+        <select id="sector-filter" class="px-3 py-1.5 text-sm bg-slate-900 border border-slate-700 rounded-md text-slate-200 focus:border-cyan-500 focus:outline-none">
+          <option value="">모든 섹터</option>
+        </select>
+        <select id="under-filter" class="px-3 py-1.5 text-sm bg-slate-900 border border-slate-700 rounded-md text-slate-200 focus:border-cyan-500 focus:outline-none">
+          <option value="">전체</option>
+          <option value="under">저평가만 (Z &lt; -0.5)</option>
+          <option value="deep-under">강한 저평가 (Z &lt; -1.5)</option>
+          <option value="over">고평가만 (Z &gt; 0.5)</option>
+        </select>
+      </div>
+    </div>
+    <div class="scroll-x scroll-y">
+      <table class="w-full text-sm">
+        <thead>
+          <tr>
+            <th data-sort="ticker">티커</th>
+            <th data-sort="name">기업명</th>
+            <th data-sort="super_sector">섹터</th>
+            <th data-sort="composite_z" class="text-right">Z종합 ⬇</th>
+            <th data-sort="quality_z" class="text-right">Quality</th>
+            <th data-sort="pe" class="text-right">P/E</th>
+            <th data-sort="ps" class="text-right">P/S</th>
+            <th data-sort="pb" class="text-right">P/B</th>
+            <th data-sort="ev_ebitda" class="text-right">EV/EBITDA</th>
+            <th data-sort="ev_sales" class="text-right">EV/Sales</th>
+            <th data-sort="market_cap" class="text-right">시총($B)</th>
+          </tr>
+        </thead>
+        <tbody id="stocks-tbody"></tbody>
+      </table>
+    </div>
+    <div class="text-xs text-slate-500 mt-2" id="table-info"></div>
+  </div>
+
+  <!-- 섹터별 상세 패널 -->
+  <div class="panel p-4 mb-6">
+    <h2 class="text-lg font-semibold mb-3">🏷️ 섹터별 중앙값 (Median Valuation)</h2>
+    <div class="scroll-x">
+      <table class="w-full text-sm">
+        <thead>
+          <tr>
+            <th>Super-Sector</th>
+            <th class="text-right">종목 수</th>
+            <th class="text-right">Median P/E</th>
+            <th class="text-right">Median P/S</th>
+            <th class="text-right">Median P/B</th>
+            <th class="text-right">Median EV/EBITDA</th>
+            <th class="text-right">Median EV/Sales</th>
+          </tr>
+        </thead>
+        <tbody id="sector-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="text-center text-xs text-slate-500 mt-8 py-4 border-t border-slate-800">
+    <p>US Valuation Radar · GitHub Actions로 매일 자동 갱신 · Git as DB pattern</p>
+    <p class="mt-1">⚠️ 본 데이터는 투자 참고용이며, 실제 투자 결정은 본인 판단 책임 하에 이루어져야 합니다.</p>
+  </footer>
+
+</div>
+
+<script>
+// ============================================================================
+// 데이터 로드 & 렌더링
+// ============================================================================
+let SNAPSHOT = null;
+let SORT_KEY = "composite_z";
+let SORT_ASC = true;
+let FILTER_SECTOR = "";
+let FILTER_UNDER = "";
+let SEARCH_TEXT = "";
+
+const Z_BANDS = [
+  { max: -1.5, cls: "z-deep-under", label: "Deep Under" },
+  { max: -0.5, cls: "z-under",      label: "Under"      },
+  { max:  0.5, cls: "z-fair",       label: "Fair"       },
+  { max:  1.5, cls: "z-over",       label: "Over"       },
+  { max:  99,  cls: "z-deep-over",  label: "Deep Over"  },
+];
+
+function zClass(z) {
+  if (z === null || z === undefined || isNaN(z)) return "z-fair";
+  for (const b of Z_BANDS) if (z <= b.max) return b.cls;
+  return "z-fair";
+}
+
+function fmt(v, digits=1) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  return Number(v).toFixed(digits);
+}
+
+function fmtZ(v) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  const sign = v > 0 ? "+" : "";
+  return sign + Number(v).toFixed(2);
+}
+
+function fmtMktCap(v) {
+  if (v === null || v === undefined || isNaN(v)) return "—";
+  const b = v / 1e9;
+  if (b >= 1000) return (b/1000).toFixed(2) + "T";
+  return b.toFixed(1) + "B";
+}
+
+// ----------------------------------------------------------------------------
+async function loadData() {
+  try {
+    const res = await fetch("data/latest.json?_=" + Date.now());
+    SNAPSHOT = await res.json();
+    render();
+  } catch (e) {
+    document.body.innerHTML = '<div class="p-8 text-red-400">데이터 로드 실패: ' + e.message + '</div>';
+    console.error(e);
+  }
+}
+
+// ----------------------------------------------------------------------------
+function render() {
+  if (!SNAPSHOT) return;
+  document.getElementById("updated-time").textContent = "Updated: " + SNAPSHOT.generated_at_kst;
+
+  // KPI
+  const stocks = SNAPSHOT.stocks;
+  const validZ = stocks.filter(s => s.composite_z !== null);
+  document.getElementById("kpi-universe").textContent = SNAPSHOT.universe_size;
+  document.getElementById("kpi-sectors").textContent  = (SNAPSHOT.super_sectors || []).length;
+  document.getElementById("kpi-under").textContent    = validZ.filter(s => s.composite_z < -1).length;
+  document.getElementById("kpi-over").textContent     = validZ.filter(s => s.composite_z >  1).length;
+
+  // 필터 옵션 채우기
+  populateSectorFilter();
+
+  // 차트들
+  drawScatter();
+  drawSectorHeatmap();
+  drawTopCards();
+  drawTable();
+  drawSectorTable();
+}
+
+function populateSectorFilter() {
+  const sel = document.getElementById("sector-filter");
+  const sectors = (SNAPSHOT.super_sectors || []).map(x => x.super_sector).sort();
+  sel.innerHTML = '<option value="">모든 섹터</option>' +
+    sectors.map(s => `<option value="${s}">${s}</option>`).join("");
+}
+
+// ----------------------------------------------------------------------------
+// Plot 1: Valuation x Quality Scatter
+// ----------------------------------------------------------------------------
+function drawScatter() {
+  const valid = SNAPSHOT.stocks.filter(s =>
+    s.composite_z !== null && s.quality_z !== null && s.market_cap
+  );
+
+  // super_sector 별로 trace 분리 (범례에서 토글 가능)
+  const bySector = {};
+  valid.forEach(s => {
+    const sec = s.super_sector || "Unknown";
+    if (!bySector[sec]) bySector[sec] = [];
+    bySector[sec].push(s);
+  });
+
+  const palette = [
+    "#06b6d4", "#818cf8", "#10b981", "#f59e0b", "#ef4444",
+    "#a78bfa", "#34d399", "#fbbf24", "#fb7185", "#60a5fa",
+    "#c084fc", "#22d3ee",
+  ];
+
+  const traces = Object.entries(bySector).map(([sec, list], idx) => ({
+    x: list.map(s => s.composite_z),
+    y: list.map(s => s.quality_z),
+    text: list.map(s =>
+      `<b>${s.ticker}</b> · ${s.name || ""}<br>` +
+      `섹터: ${s.super_sector}<br>` +
+      `Z종합: ${fmtZ(s.composite_z)} (낮을수록 저평가)<br>` +
+      `Quality: ${fmtZ(s.quality_z)}<br>` +
+      `P/E: ${fmt(s.pe)} · P/S: ${fmt(s.ps)} · P/B: ${fmt(s.pb)}<br>` +
+      `시총: $${fmtMktCap(s.market_cap)}`
+    ),
+    hovertemplate: "%{text}<extra></extra>",
+    customdata: list.map(s => s.ticker),
+    mode: "markers",
+    type: "scatter",
+    name: sec,
+    marker: {
+      size: list.map(s => Math.max(8, Math.min(40, Math.sqrt(s.market_cap / 1e9) * 1.5))),
+      color: palette[idx % palette.length],
+      opacity: 0.75,
+      line: { color: "#0a0e1a", width: 1 },
+    },
+  }));
+
+  const layout = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#cbd5e1", family: "-apple-system, BlinkMacSystemFont, sans-serif" },
+    margin: { l: 50, r: 20, t: 20, b: 45 },
+    xaxis: {
+      title: { text: "← 저평가  |  Composite Z-score  |  고평가 →", font: { size: 12 } },
+      gridcolor: "rgba(255,255,255,0.05)",
+      zerolinecolor: "rgba(255,255,255,0.2)",
+      zerolinewidth: 1,
+    },
+    yaxis: {
+      title: { text: "← 저품질  |  Quality Z-score  |  우량 →", font: { size: 12 } },
+      gridcolor: "rgba(255,255,255,0.05)",
+      zerolinecolor: "rgba(255,255,255,0.2)",
+      zerolinewidth: 1,
+    },
+    legend: { font: { size: 10 }, bgcolor: "rgba(0,0,0,0)" },
+    shapes: [
+      // 좌상단 = 저평가 + 우량 (스윗스팟)
+      { type: "rect", x0: -5, x1: 0, y0: 0, y1: 5,
+        fillcolor: "rgba(16,185,129,0.06)", line: { width: 0 } },
+    ],
+    annotations: [
+      { x: -2.5, y: 4.5, text: "💎 SWEET SPOT<br>(저평가 + 우량)", showarrow: false,
+        font: { color: "#6ee7b7", size: 10 }, xanchor: "center" },
+    ],
+  };
+
+  Plotly.newPlot("scatter-plot", traces, layout, {
+    responsive: true,
+    displayModeBar: false,
+  });
+
+  // 클릭 시 해당 종목 테이블로 스크롤
+  document.getElementById("scatter-plot").on("plotly_click", (data) => {
+    if (!data.points.length) return;
+    const tk = data.points[0].customdata;
+    document.getElementById("search-input").value = tk;
+    SEARCH_TEXT = tk;
+    drawTable();
+    document.querySelector("#stocks-tbody")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Plot 2: Sector Heatmap (섹터별 Median 지표)
+// ----------------------------------------------------------------------------
+function drawSectorHeatmap() {
+  const sectors = (SNAPSHOT.super_sectors || []).filter(s => s.n_total >= 3);
+  sectors.sort((a, b) => (a.median_pe || 999) - (b.median_pe || 999));
+
+  const metrics = ["median_pe", "median_ps", "median_pb", "median_ev_ebitda", "median_ev_sales"];
+  const metricLabels = ["P/E", "P/S", "P/B", "EV/EBITDA", "EV/Sales"];
+
+  // 각 지표별로 Z-score 정규화 (섹터 간 비교용)
+  const normalized = metrics.map(metric => {
+    const vals = sectors.map(s => s[metric]).filter(v => v !== null);
+    if (vals.length === 0) return sectors.map(() => null);
+    const med = vals.sort((a,b)=>a-b)[Math.floor(vals.length/2)];
+    const mad = vals.map(v => Math.abs(v - med)).sort((a,b)=>a-b)[Math.floor(vals.length/2)] || 1;
+    return sectors.map(s => {
+      if (s[metric] === null) return null;
+      return (s[metric] - med) / (1.4826 * mad);
+    });
+  });
+
+  const z = normalized;
+  const text = sectors.map((s, i) =>
+    metrics.map((m, j) => {
+      const v = s[m];
+      return v === null ? "—" : v.toFixed(1);
+    })
+  );
+
+  const trace = {
+    z: z[0].map((_, i) => metrics.map((_, j) => z[j][i])),
+    x: metricLabels,
+    y: sectors.map(s => s.super_sector),
+    text: text,
+    texttemplate: "%{text}",
+    hovertemplate: "<b>%{y}</b><br>%{x}: %{text}<extra></extra>",
+    type: "heatmap",
+    colorscale: [
+      [0,    "#10b981"],
+      [0.4,  "#1e3a2e"],
+      [0.5,  "#1a2030"],
+      [0.6,  "#3a1e2e"],
+      [1,    "#ef4444"],
+    ],
+    zmid: 0,
+    zmin: -2,
+    zmax: 2,
+    showscale: true,
+    colorbar: {
+      title: { text: "Z", side: "right" },
+      thickness: 8,
+      len: 0.6,
+      tickfont: { size: 10 },
+    },
+  };
+
+  const layout = {
+    paper_bgcolor: "rgba(0,0,0,0)",
+    plot_bgcolor: "rgba(0,0,0,0)",
+    font: { color: "#cbd5e1", size: 11 },
+    margin: { l: 200, r: 50, t: 10, b: 50 },
+    xaxis: { side: "bottom" },
+    yaxis: { automargin: true },
+  };
+
+  Plotly.newPlot("sector-heatmap", [trace], layout, {
+    responsive: true,
+    displayModeBar: false,
+  });
+}
+
+// ----------------------------------------------------------------------------
+// TOP 카드
+// ----------------------------------------------------------------------------
+function drawTopCards() {
+  const valid = SNAPSHOT.stocks
+    .filter(s => s.composite_z !== null)
+    .sort((a,b) => a.composite_z - b.composite_z)
+    .slice(0, 12);
+
+  const container = document.getElementById("top-cards");
+  container.innerHTML = valid.map(s => {
+    const qualityMark = (s.quality_z !== null && s.quality_z > 0)
+      ? '<span class="text-emerald-400">✨</span>'
+      : (s.quality_z !== null && s.quality_z < -1)
+      ? '<span class="text-yellow-400">⚠️</span>'
+      : "";
+    return `
+      <div class="panel-2 p-3 hover:border-cyan-500 transition-colors cursor-pointer" onclick="filterTicker('${s.ticker}')">
+        <div class="flex items-baseline justify-between mb-1">
+          <div class="text-lg font-bold">${s.ticker} ${qualityMark}</div>
+          <div class="text-xs ${zClass(s.composite_z)} px-2 py-0.5 rounded">${fmtZ(s.composite_z)}</div>
+        </div>
+        <div class="text-xs text-slate-400 truncate mb-2" title="${s.name || ''}">${s.name || ''}</div>
+        <div class="text-[10px] text-slate-500 mb-2">${s.super_sector || ''}</div>
+        <div class="grid grid-cols-2 gap-1 text-[11px] num-mono">
+          <div class="text-slate-500">P/E</div><div class="text-right">${fmt(s.pe)}</div>
+          <div class="text-slate-500">P/S</div><div class="text-right">${fmt(s.ps)}</div>
+          <div class="text-slate-500">P/B</div><div class="text-right">${fmt(s.pb)}</div>
+          <div class="text-slate-500">EV/EBITDA</div><div class="text-right">${fmt(s.ev_ebitda)}</div>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function filterTicker(tk) {
+  document.getElementById("search-input").value = tk;
+  SEARCH_TEXT = tk;
+  drawTable();
+  document.querySelector("#stocks-tbody")?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// ----------------------------------------------------------------------------
+// 메인 테이블
+// ----------------------------------------------------------------------------
+function drawTable() {
+  let rows = SNAPSHOT.stocks.slice();
+
+  // 필터
+  if (SEARCH_TEXT) {
+    const q = SEARCH_TEXT.toLowerCase();
+    rows = rows.filter(s =>
+      (s.ticker || "").toLowerCase().includes(q) ||
+      (s.name || "").toLowerCase().includes(q)
+    );
+  }
+  if (FILTER_SECTOR) rows = rows.filter(s => s.super_sector === FILTER_SECTOR);
+  if (FILTER_UNDER === "under")      rows = rows.filter(s => s.composite_z !== null && s.composite_z < -0.5);
+  if (FILTER_UNDER === "deep-under") rows = rows.filter(s => s.composite_z !== null && s.composite_z < -1.5);
+  if (FILTER_UNDER === "over")       rows = rows.filter(s => s.composite_z !== null && s.composite_z > 0.5);
+
+  // 정렬
+  rows.sort((a,b) => {
+    let va = a[SORT_KEY], vb = b[SORT_KEY];
+    if (va === null || va === undefined) va = SORT_ASC ? Infinity : -Infinity;
+    if (vb === null || vb === undefined) vb = SORT_ASC ? Infinity : -Infinity;
+    if (typeof va === "string") va = va.toLowerCase();
+    if (typeof vb === "string") vb = vb.toLowerCase();
+    if (va < vb) return SORT_ASC ? -1 : 1;
+    if (va > vb) return SORT_ASC ?  1 : -1;
+    return 0;
+  });
+
+  const tbody = document.getElementById("stocks-tbody");
+  tbody.innerHTML = rows.map(s => `
+    <tr>
+      <td class="font-bold">${s.ticker || ""}</td>
+      <td class="text-slate-300 max-w-[200px] truncate" title="${s.name || ''}">${s.name || ""}</td>
+      <td class="text-xs text-slate-400">${s.super_sector || ""}</td>
+      <td class="text-right num-mono ${zClass(s.composite_z)}">${fmtZ(s.composite_z)}</td>
+      <td class="text-right num-mono">${fmtZ(s.quality_z)}</td>
+      <td class="text-right num-mono">${fmt(s.pe)}</td>
+      <td class="text-right num-mono">${fmt(s.ps)}</td>
+      <td class="text-right num-mono">${fmt(s.pb)}</td>
+      <td class="text-right num-mono">${fmt(s.ev_ebitda)}</td>
+      <td class="text-right num-mono">${fmt(s.ev_sales)}</td>
+      <td class="text-right num-mono text-slate-400">${fmtMktCap(s.market_cap)}</td>
+    </tr>
+  `).join("");
+
+  document.getElementById("table-info").textContent =
+    `${rows.length} / ${SNAPSHOT.stocks.length} 종목 · 정렬: ${SORT_KEY} ${SORT_ASC ? "오름차순" : "내림차순"}`;
+}
+
+// 정렬 헤더 이벤트
+document.querySelectorAll("thead th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.getAttribute("data-sort");
+    if (SORT_KEY === key) {
+      SORT_ASC = !SORT_ASC;
+    } else {
+      SORT_KEY = key;
+      SORT_ASC = (key === "composite_z" || key === "pe" || key === "ps" || key === "pb" || key === "ev_ebitda" || key === "ev_sales");
+    }
+    drawTable();
+  });
+});
+
+// 필터 이벤트
+document.getElementById("search-input").addEventListener("input", e => {
+  SEARCH_TEXT = e.target.value;
+  drawTable();
+});
+document.getElementById("sector-filter").addEventListener("change", e => {
+  FILTER_SECTOR = e.target.value;
+  drawTable();
+});
+document.getElementById("under-filter").addEventListener("change", e => {
+  FILTER_UNDER = e.target.value;
+  drawTable();
+});
+
+// ----------------------------------------------------------------------------
+// 섹터 통계 테이블
+// ----------------------------------------------------------------------------
+function drawSectorTable() {
+  const sectors = (SNAPSHOT.super_sectors || []).slice();
+  sectors.sort((a, b) => (a.median_pe || 999) - (b.median_pe || 999));
+  const tbody = document.getElementById("sector-tbody");
+  tbody.innerHTML = sectors.map(s => `
+    <tr>
+      <td class="font-medium">${s.super_sector}</td>
+      <td class="text-right num-mono text-slate-400">${s.n_total}</td>
+      <td class="text-right num-mono">${fmt(s.median_pe)}</td>
+      <td class="text-right num-mono">${fmt(s.median_ps)}</td>
+      <td class="text-right num-mono">${fmt(s.median_pb)}</td>
+      <td class="text-right num-mono">${fmt(s.median_ev_ebitda)}</td>
+      <td class="text-right num-mono">${fmt(s.median_ev_sales)}</td>
+    </tr>
+  `).join("");
+}
+
+// 시작
+loadData();
+</script>
+
+</body>
+</html>
